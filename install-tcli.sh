@@ -6,10 +6,10 @@
 #   <base>/v<VER>/<arch>/tcli static binary, arch = x86_64 | aarch64
 set -euo pipefail
 
-# Must match the release bucket published by tabbify-cli CI (RELEASE_S3_BUCKET).
-# NOTE: currently `tabbify-releases-leo`; tcli's selfupdate DEFAULT_CLI_BASE_URL
-# still says `tabbify-releases` — reconcile the bucket name later. Overridable
-# via TABBIFY_CLI_BASE_URL / the action's `cli-base-url` input.
+# Must match the release bucket published by tabbify-cli CI (RELEASE_S3_BUCKET)
+# AND tcli's selfupdate DEFAULT_CLI_BASE_URL — all three now agree on
+# `tabbify-releases-leo`. Overridable via TABBIFY_CLI_BASE_URL / the action's
+# `cli-base-url` input.
 BASE="${TABBIFY_CLI_BASE_URL:-https://tabbify-releases-leo.s3.eu-central-1.amazonaws.com/cli}"
 
 case "$(uname -m)" in
