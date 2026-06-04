@@ -1,0 +1,51 @@
+name: "Tabbify Deploy"
+description: "Deploy an app to Tabbify. Variant 2 (remote build on Tabbify infra) by default."
+branding:
+  icon: "upload-cloud"
+  color: "green"
+inputs:
+  remote:
+    description: "Remote build (Variant 2). Set 'false' for local build + registry push (Variant 1)."
+    default: "true"
+  token:
+    description: "Tabbify API bearer token (TABBIFY_TOKEN)."
+    required: true
+  clone-token:
+    description: "Git clone token. Defaults to the Action's GITHUB_TOKEN (per-run, repo-scoped — no GitHub App needed)."
+    default: ${{ github.token }}
+  app-dir:
+    description: "App directory holding tabbify.toml."
+    default: "."
+  tenant:
+    description: "Tenant namespace (registry path prefix)."
+    default: "tabbify"
+  builder:
+    description: "Builder supervisor (name|ULA). Empty ⇒ tabbify.toml [build].builder, then node selection."
+    default: ""
+  node-url:
+    description: "Tabbify node API base URL."
+    default: "https://api.tabbify.io"
+  cli-base-url:
+    description: "Base URL of the tcli release S3 (cli/ prefix). Must match the publishing bucket."
+    default: ""
+runs:
+  using: "composite"
+  steps:
+    - name: Install tcli
+      shell: bash
+      env:
+        TABBIFY_CLI_BASE_URL: ${{ inputs.cli-base-url }}
+      run: ${{ github.action_path }}/install-tcli.sh
+    - name: Deploy
+      shell: bash
+      env:
+        TABBIFY_TOKEN: ${{ inputs.token }}
+        TABBIFY_CLONE_TOKEN: ${{ inputs.clone-token }}
+        TABBIFY_NODE_ADDR: ${{ inputs.node-url }}
+        TABBIFY_TENANT: ${{ inputs.tenant }}
+      run: |
+        set -euo pipefail
+        ARGS=(deploy "${{ inputs.app-dir }}")
+        if [ "${{ inputs.remote }}" = "true" ]; then ARGS+=(--remote); fi
+        if [ -n "${{ inputs.builder }}" ]; then ARGS+=(--builder "${{ inputs.builder }}"); fi
+        tcli "${ARGS[@]}"

@@ -1,0 +1,25 @@
+# Variant 2 — inline form: build `tcli` in the runner instead of installing a
+# published release. Use this until a `tcli` release exists in the release S3.
+# Copy to your app repo at .github/workflows/deploy.yml.
+name: Deploy to Tabbify (inline tcli)
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read              # github.token = repo-scoped clone token
+    env:
+      TABBIFY_TOKEN: ${{ secrets.TABBIFY_TOKEN }}
+      TABBIFY_CLONE_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build tcli
+        run: |
+          git clone --depth 1 https://github.com/tabbify-io/tabbify-cli /tmp/tcli-src
+          cargo install --path /tmp/tcli-src --root /tmp/tcli
+          echo "/tmp/tcli/bin" >> "$GITHUB_PATH"
+      - name: Deploy (remote build on Tabbify infra)
+        run: tcli deploy --remote
