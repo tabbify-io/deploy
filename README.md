@@ -54,5 +54,6 @@ release S3 (`<base>/latest` → `<base>/v<VER>/<arch>/tcli`), then runs
 `tcli deploy [--remote]`, which POSTs to `<node-url>/v1/deploy`. See
 `obsidian/projects/_app-layer/specs/2026-06-04-tcli-deploy-and-kill-github-app.md`.
 
-> **Note:** the S3 install requires a published `tcli` release. Until then, use
-> `examples/deploy-inline.yml` (checks out + builds `tcli` in the runner).
+> The release bucket is currently `tabbify-releases-leo` (override via the
+> `cli-base-url` input). `examples/deploy-inline.yml` builds `tcli` in the runner
+> instead of installing a release — handy for testing an unreleased CLI.
