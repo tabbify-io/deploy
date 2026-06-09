@@ -48,4 +48,38 @@ runs:
         ARGS=(deploy "${{ inputs.app-dir }}")
         if [ "${{ inputs.remote }}" = "true" ]; then ARGS+=(--remote); fi
         if [ -n "${{ inputs.builder }}" ]; then ARGS+=(--builder "${{ inputs.builder }}"); fi
-        tcli "${ARGS[@]}"
+
+        # The remote path is ASYNC: tcli prints "deploy accepted: <id>" + a poll
+        # URL and returns immediately; the build+deploy then runs in the
+        # background on the node. Without polling, this Action goes green on mere
+        # ACCEPTANCE (202) — so a build or per-target deploy failure is invisible
+        # ("GitHub says built" but the app never updates). Poll the deploy status
+        # and FAIL the job on any target failure or a timeout.
+        OUT="$(tcli "${ARGS[@]}")"
+        printf '%s\n' "$OUT"
+
+        DID="$(printf '%s\n' "$OUT" | sed -n 's/^deploy accepted: //p' | head -1)"
+        if [ -z "$DID" ]; then
+          echo "No async deploy id in output (sync/local deploy) — nothing to poll."
+          exit 0
+        fi
+
+        STATUS_URL="${TABBIFY_NODE_ADDR%/}/v1/deploy/${DID}/status"
+        echo "Waiting for deploy ${DID} to finish: ${STATUS_URL}"
+        for _ in $(seq 1 180); do   # up to ~15 min at 5s
+          body="$(curl -fsS -H "Authorization: Bearer ${TABBIFY_TOKEN}" "$STATUS_URL" 2>/dev/null || true)"
+          n="$(printf '%s' "$body" | jq -r '(.results // []) | length' 2>/dev/null || echo 0)"
+          if [ "${n:-0}" -gt 0 ]; then
+            printf '%s\n' "$body" | jq .
+            fails="$(printf '%s' "$body" | jq -r '[.results[] | select(.success != true)] | length')"
+            if [ "${fails:-0}" -gt 0 ]; then
+              echo "::error::Tabbify deploy failed on ${fails} target(s)"
+              exit 1
+            fi
+            echo "✅ Tabbify deploy succeeded on all ${n} target(s)"
+            exit 0
+          fi
+          sleep 5
+        done
+        echo "::error::Tabbify deploy ${DID} did not reach a terminal state within the timeout"
+        exit 1
