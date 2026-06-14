@@ -67,18 +67,43 @@ runs:
         STATUS_URL="${TABBIFY_NODE_ADDR%/}/v1/deploy/${DID}/status"
         echo "Waiting for deploy ${DID} to finish: ${STATUS_URL}"
         for _ in $(seq 1 180); do   # up to ~15 min at 5s
-          body="$(curl -fsS -H "Authorization: Bearer ${TABBIFY_TOKEN}" "$STATUS_URL" 2>/dev/null || true)"
-          n="$(printf '%s' "$body" | jq -r '(.results // []) | length' 2>/dev/null || echo 0)"
-          if [ "${n:-0}" -gt 0 ]; then
-            printf '%s\n' "$body" | jq .
-            fails="$(printf '%s' "$body" | jq -r '[.results[] | select(.success != true)] | length')"
-            if [ "${fails:-0}" -gt 0 ]; then
-              echo "::error::Tabbify deploy failed on ${fails} target(s)"
+          # Capture the HTTP status AND body separately. Do NOT use `curl -f`:
+          # the node encodes a FAILED pipeline as 4xx/5xx with an {"error":...}
+          # body, and `-f` would discard that body (turning a real failure into
+          # an opaque 15-min timeout). The status code is the source of truth:
+          #   200 -> done (inspect per-target .results)
+          #   202 -> still running / unknown id / evicted -> keep polling
+          #   401/403 -> token not accepted (e.g. wrong scope) -> fail fast
+          #   other 4xx/5xx -> pipeline failed fatally -> surface .error
+          #   empty/garbage -> transient curl/network blip -> keep polling
+          resp="$(curl -sS -w $'\n%{http_code}' -H "Authorization: Bearer ${TABBIFY_TOKEN}" "$STATUS_URL" 2>/dev/null || true)"
+          code="$(printf '%s' "$resp" | tail -n1)"
+          body="$(printf '%s' "$resp" | sed '$d')"
+          case "$code" in
+            200)
+              printf '%s\n' "$body" | jq . 2>/dev/null || printf '%s\n' "$body"
+              n="$(printf '%s' "$body" | jq -r '(.results // []) | length' 2>/dev/null || echo 0)"
+              fails="$(printf '%s' "$body" | jq -r '[(.results // [])[] | select(.success != true)] | length' 2>/dev/null || echo 0)"
+              if [ "${fails:-0}" -gt 0 ]; then
+                echo "::error::Tabbify deploy failed on ${fails} of ${n} target(s)"
+                exit 1
+              fi
+              echo "✅ Tabbify deploy succeeded on all ${n} target(s)"
+              exit 0
+              ;;
+            401|403)
+              echo "::error::Tabbify deploy status rejected the token (HTTP ${code}). Check the TABBIFY_TOKEN scope."
+              printf '%s\n' "$body"
               exit 1
-            fi
-            echo "✅ Tabbify deploy succeeded on all ${n} target(s)"
-            exit 0
-          fi
+              ;;
+            4[0-9][0-9]|5[0-9][0-9])
+              echo "::error::Tabbify deploy ${DID} failed (HTTP ${code})"
+              printf '%s\n' "$body" | jq -r '.error // .' 2>/dev/null || printf '%s\n' "$body"
+              exit 1
+              ;;
+            *)  # 202 (pending) or an empty/unparseable transient response.
+              : ;;
+          esac
           sleep 5
         done
         echo "::error::Tabbify deploy ${DID} did not reach a terminal state within the timeout"
